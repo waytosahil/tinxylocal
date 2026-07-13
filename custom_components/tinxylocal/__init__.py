@@ -54,10 +54,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Extract device configurations
     device_data = entry.data[CONF_DEVICE]
+    device_id = device_data["_id"]
+    suffix = device_id[-5:].lower()
+    service_name = f"tinxy{suffix}._http._tcp.local."
+    
+    current_ip = entry.data[CONF_HOST]
+    
+    try:
+        from homeassistant.components import zeroconf
+        _LOGGER.debug("Tinxy: Resolving IP address via Zeroconf for device %s at startup", device_id)
+        aiozc = await zeroconf.async_get_instance(hass)
+        info = await aiozc.async_get_service_info("_http._tcp.local.", service_name)
+        if info and info.addresses:
+            resolved_ip = ".".join(map(str, info.addresses[0]))
+            if resolved_ip != current_ip:
+                _LOGGER.info("Tinxy: Resolved new IP address %s via Zeroconf for %s (previous: %s)", resolved_ip, device_data["name"], current_ip)
+                current_ip = resolved_ip
+                new_data = {**entry.data, CONF_HOST: resolved_ip}
+                hass.config_entries.async_update_entry(entry, data=new_data)
+    except Exception as err:
+        _LOGGER.warning("Tinxy: Zeroconf resolution failed at startup for %s: %s", device_data["name"], err)
 
     nodes = [
         {
-            "ip_address": entry.data[CONF_HOST],
+            "ip_address": current_ip,
             "mqtt_password": entry.data[CONF_MQTT_PASS],
             "device_id": device_data["_id"],
             "name": device_data["name"],
@@ -80,6 +100,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize the coordinator with the list of nodes and web session
     coordinator = TinxyUpdateCoordinator(hass, nodes, web_session, polling_interval)
+    coordinator.config_entry = entry
 
     # Store the coordinator and hubs in Home Assistant's data store
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator, "hubs": hubs}
@@ -92,6 +113,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    if entry.entry_id not in hass.data[DOMAIN]:
+        return True
+
     # Shutdown all hubs to stop background workers
     hubs = hass.data[DOMAIN][entry.entry_id]["hubs"]
     for hub in hubs:

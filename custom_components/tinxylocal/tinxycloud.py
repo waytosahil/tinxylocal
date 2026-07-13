@@ -86,8 +86,6 @@ class TinxyCloud:
         if payload:
             payload["source"] = "Home Assistant"
 
-        # async with self.web_session as session:
-        # try:
         async with self.web_session.request(
             method=method,
             url=self.host_config.api_url + path,
@@ -95,9 +93,15 @@ class TinxyCloud:
             headers=headers,
             timeout=10,
         ) as resp:
+            if resp.status in (401, 403):
+                raise TinxyAuthenticationException(
+                    message="Unauthorized api key or authentication failed."
+                )
+            if resp.status != 200:
+                raise TinxyException(
+                    message=f"Request to cloud failed with status {resp.status}"
+                )
             return await resp.json()
-            # except:
-            #     raise TinxyException(message="API [GET] call failed")
 
     async def get_device_list(self):
         """Read all devices from server."""

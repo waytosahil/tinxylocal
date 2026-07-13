@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import selector
+from homeassistant.components import zeroconf
 
 from .const import CONF_DEVICE, CONF_DEVICE_ID, CONF_MQTT_PASS, CONF_POLLING_INTERVAL, CONF_REQUEST_TIMEOUT, DEFAULT_POLLING_INTERVAL, DEFAULT_REQUEST_TIMEOUT, DOMAIN, TINXY_BACKEND
 from .hub import TinxyLocalHub
@@ -39,20 +40,10 @@ STEP_CHOOSE_TOKEN_SCHEMA = vol.Schema(
     }
 )
 
-# Schema for entering device IP and selecting a device
-STEP_DEVICE_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): str,
-        vol.Required(CONF_DEVICE_ID): str,
-    }
-)
 
 
-async def validate_device(hass: HomeAssistant, host_ip, chip_id) -> dict[str, Any]:
-    """Validate the device IP and selected device."""
-    web_session = async_get_clientsession(hass)
-    hub = TinxyLocalHub(hass, host_ip)
-    return hub.validate_ip(web_session, host_ip, chip_id)
+
+
 
 
 async def read_devices(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -73,8 +64,12 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     web_session = async_get_clientsession(hass)
     hub = TinxyLocalHub(hass, TINXY_BACKEND)
 
-    if not await hub.authenticate(data[CONF_API_KEY], web_session):
-        raise InvalidAuth
+    from .hub import TinxyLocalException
+    try:
+        if not await hub.authenticate(data[CONF_API_KEY], web_session):
+            raise InvalidAuth
+    except TinxyLocalException as conn_err:
+        raise CannotConnect from conn_err
 
     return {"title": "Tinxy.in"}
 
@@ -96,6 +91,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self.api_token = None
         self.cloud_devices = {}
+        self.discovered_suffix = None
+        self.discovered_host = None
 
     @staticmethod
     def async_get_options_flow(
@@ -104,6 +101,35 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler.
         """
         return TinxyLocalOptionsFlowHandler()
+
+    async def async_step_zeroconf(
+        self, discovery_info: zeroconf.ZeroconfServiceInfo
+    ) -> config_entries.ConfigFlowResult:
+        """Handle a flow initialized by Zeroconf discovery."""
+        name = discovery_info.name
+        if not name.startswith("tinxy"):
+            return self.async_abort(reason="not_tinxy_device")
+
+        # name is like: tinxy12ab4._http._tcp.local.
+        suffix = name.split(".")[0].replace("tinxy", "").lower()
+        host = discovery_info.host
+
+        _LOGGER.debug("Discovered Tinxy local device: suffix=%s, host=%s", suffix, host)
+
+        # Set Context unique ID based on the suffix
+        await self.async_set_unique_id(suffix)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+
+        self.discovered_suffix = suffix
+        self.discovered_host = host
+
+        # Set title placeholder
+        self.context["title_placeholders"] = {
+            "name": f"Tinxy {suffix}"
+        }
+
+        # Proceed to step user to prompt for API Key
+        return await self.async_step_user()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -177,6 +203,20 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.hass, {CONF_API_KEY: self.api_token}
             )
 
+        # Automatically select the discovered device if available
+        if self.discovered_suffix and not user_input:
+            matching_device = None
+            for item in self.cloud_devices:
+                if "uuidRef" in item and "uuid" in item["uuidRef"]:
+                    uuid = item["uuidRef"]["uuid"]
+                    if uuid[-5:].lower() == self.discovered_suffix:
+                        matching_device = item
+                        break
+            
+            if matching_device:
+                _LOGGER.info("Automatically selected discovered Zeroconf device: %s", matching_device["name"])
+                user_input = {CONF_DEVICE_ID: matching_device["_id"]}
+
         # Build the selection schema
         device_options = {
             item["_id"]: "{} ({})".format(item["name"], item["uuidRef"]["uuid"])
@@ -195,8 +235,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not selected_device:
                     raise ValueError("Device not found")  # noqa: TRY301
 
+                # Determine host IP: use discovered host IP or resolve via Zeroconf
+                host_ip = None
+                device_uuid = selected_device["uuidRef"]["uuid"]
+                suffix = device_uuid[-5:].lower()
+
+                if self.discovered_suffix == suffix and self.discovered_host:
+                    host_ip = self.discovered_host
+                    _LOGGER.debug("Using discovered host IP for selected device: %s", host_ip)
+                else:
+                    from homeassistant.components import zeroconf
+                    service_name = f"tinxy{suffix}._http._tcp.local."
+                    
+                    _LOGGER.debug("Resolving Zeroconf service %s in config flow", service_name)
+                    try:
+                        aiozc = await zeroconf.async_get_instance(self.hass)
+                        info = await aiozc.async_get_service_info("_http._tcp.local.", service_name)
+                        if info and info.addresses:
+                            host_ip = ".".join(map(str, info.addresses[0]))
+                    except Exception as err:
+                        _LOGGER.error("Zeroconf resolution error during config flow: %s", err)
+                
+                if not host_ip:
+                    raise CannotResolveIP("Could not locate device automatically on local network. Ensure it is powered on and connected to the same Wi-Fi subnet.")
+
                 web_session = async_get_clientsession(self.hass)
-                hub = TinxyLocalHub(self.hass, user_input[CONF_HOST])
+                hub = TinxyLocalHub(self.hass, host_ip)
                 validate_status = await hub.validate_ip(
                     web_session,
                     selected_device["uuidRef"]["uuid"],
@@ -206,7 +270,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 if validate_status == "wrong_chip_id":
                     raise ValueError(  # noqa: TRY301
-                        "Wrong Ip address, chip id should be {}".format(
+                        "Wrong Ip address resolved, chip id should be {}".format(
                             selected_device["uuidRef"]["uuid"]
                         )
                     )
@@ -227,22 +291,25 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=selected_device["name"],
                     data={
                         CONF_DEVICE: selected_device,
-                        CONF_HOST: user_input[CONF_HOST],
+                        CONF_HOST: host_ip,
                         CONF_MQTT_PASS: selected_device["mqttPassword"],
                         CONF_DEVICE_ID: selected_device["uuidRef"]["uuid"],
                         CONF_API_KEY: self.api_token,
                     },
                 )
 
+            except CannotResolveIP:
+                self.discovered_suffix = None  # Clear suffix on failure to fallback
+                errors["base"] = "cannot_resolve_ip"
             except Exception as e:  # noqa: BLE001
+                self.discovered_suffix = None  # Clear suffix on failure to fallback
                 _LOGGER.error("Device selection error: %s", e)
                 errors["base"] = str(e)
 
-        # Show device selection form with IP configuration
+        # Show device selection form with only Device ID configuration
         device_schema = vol.Schema(
             {
                 vol.Required(CONF_DEVICE_ID): vol.In(device_options),
-                vol.Required(CONF_HOST): str,
             }
         )
 
@@ -257,6 +324,10 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
+
+
+class CannotResolveIP(HomeAssistantError):
+    """Error to indicate we cannot resolve device IP via Zeroconf."""
 
 
 class TinxyLocalOptionsFlowHandler(config_entries.OptionsFlow):

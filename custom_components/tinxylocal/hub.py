@@ -55,22 +55,31 @@ class TinxyLocalHub:
         self.queue_limit = 50  # max commands per device
         self.rate_limit_delay = 1.0  # seconds between commands
         
-        # Per-device command queues and workers
+        # Per-device command queues, workers and events
         self.device_queues: Dict[str, deque] = {}
         self.device_workers: Dict[str, asyncio.Task] = {}
+        self.device_events: Dict[str, asyncio.Event] = {}
         self.device_last_command: Dict[str, float] = {}
         self._shutdown = False
 
     async def authenticate(self, api_key: str, web_session) -> bool:
         """Authenticate with the host."""
-        api = TinxyCloud(
-            host_config=TinxyHostConfiguration(
-                api_token=api_key, api_url=TINXY_BACKEND
-            ),
-            web_session=web_session,
-        )
-        await api.sync_devices()
-        return True
+        from .tinxycloud import TinxyAuthenticationException
+        try:
+            api = TinxyCloud(
+                host_config=TinxyHostConfiguration(
+                    api_token=api_key, api_url=TINXY_BACKEND
+                ),
+                web_session=web_session,
+            )
+            await api.sync_devices()
+            return True
+        except TinxyAuthenticationException:
+            _LOGGER.warning("Invalid API token provided to authenticate")
+            return False
+        except Exception as e:
+            _LOGGER.error("Failed to connect to Tinxy Cloud API during validation: %s", e)
+            raise TinxyLocalException("Could not connect to Tinxy Cloud API") from e
 
     async def validate_ip(self, web_session, chip_id=None) -> str:
         """Validate the device's local API by checking the /info endpoint.
@@ -138,6 +147,27 @@ class TinxyLocalHub:
         except Exception as e:  # noqa: BLE001
             handle_exception(f"Error for request to {url}: {e}", e)
 
+    def _get_executable_path(self) -> Optional[str]:
+        """Determine the correct executable path based on the system platform and architecture."""
+        integration_path = self.hass.config.path("custom_components/tinxylocal/build")
+        system_os = platform.system().lower()
+        system_arch = platform.machine().lower()
+
+        if system_os == "windows":
+            return f"{integration_path}/tinxy-cli_windows_amd64.exe"
+        elif system_os == "linux":
+            if system_arch in ["x86_64", "x64", "amd64", "intel"]:
+                return f"{integration_path}/tinxy-cli_linux_amd64"
+            elif system_arch in ["aarch64", "arm64"]:
+                return f"{integration_path}/tinxy-cli_linux_arm64"
+            elif "armv7" in system_arch:
+                return f"{integration_path}/tinxy-cli_linux_armv7"
+            elif "armv6" in system_arch:
+                return f"{integration_path}/tinxy-cli_linux_armv6"
+
+        _LOGGER.error("Unsupported system: OS=%s, Arch=%s", system_os, system_arch)
+        return None
+
     async def tinxy_toggle(
         self, mqttpass: str, relay_number: int, action: int) -> bool:
         """Toggle Tinxy device state using the CLI executable."""
@@ -147,34 +177,8 @@ class TinxyLocalHub:
 
         action_str = "on" if action == 1 else "off"
 
-        INTEGRATION_PATH = self.hass.config.path(f"custom_components/tinxylocal/build")
-        # Determine the correct executable based on the system architecture
-        system_arch = platform.machine()
-        arch_table = {
-            "x86_64": ["x64", "x86_64", "amd64", "intel"],
-            "armv7l": ["armv7l"],
-            "armv6l": ["armv6l"],
-            "aarch64": ["aarch64", "arm64"],
-            "win": ["win"],
-        }
-
-        executable_path = None
-        for arch, aliases in arch_table.items():
-            if system_arch in aliases or system_arch.startswith(arch):
-                if arch == "x86_64":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_amd64"
-                elif arch == "armv7l":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_armv7"
-                elif arch == "armv6l":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_armv6"
-                elif arch == "aarch64":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_arm64"
-                elif arch == "win":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_windows_amd64.exe"
-                break
-
+        executable_path = self._get_executable_path()
         if not executable_path:
-            _LOGGER.error("Unsupported system architecture: %s", system_arch)
             return False
 
         command = [
@@ -191,7 +195,18 @@ class TinxyLocalHub:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
+            except asyncio.TimeoutError:
+                _LOGGER.error(
+                    "Timeout executing toggle command for relay %s after 10 seconds",
+                    relay_number
+                )
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+                return False
 
             if process.returncode == 0:
                 _LOGGER.info("Successfully toggled relay %s to %s", relay_number, action_str)
@@ -212,35 +227,9 @@ class TinxyLocalHub:
         self, mqttpass: str, relay_number: int, brightness: int) -> bool:
         """Set Tinxy device brightness using the CLI executable."""
 
-        INTEGRATION_PATH = self.hass.config.path(f"custom_components/tinxylocal/build")
-        # Determine the correct executable based on the system architecture
-        system_arch = platform.machine()
-        arch_table = {
-            "x86_64": ["x64", "x86_64", "amd64", "intel"],
-            "armv7l": ["armv7l"],
-            "armv6l": ["armv6l"],
-            "aarch64": ["aarch64", "arm64"],
-            "win": ["win"],
-        }
-
-        executable_path = None
-        for arch, aliases in arch_table.items():
-            if system_arch in aliases or system_arch.startswith(arch):
-                if arch == "x86_64":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_amd64"
-                elif arch == "armv7l":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_armv7"
-                elif arch == "armv6l":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_armv6"
-                elif arch == "aarch64":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_linux_arm64"
-                elif arch == "win":
-                    executable_path = f"{INTEGRATION_PATH}/tinxy-cli_windows_amd64.exe"
-                break
-
+        executable_path = self._get_executable_path()
         if not executable_path:
-            _LOGGER.error("Unsupported system architecture: %s", system_arch)
-            return False
+            return await self.tinxy_toggle(mqttpass, relay_number, 1)
 
         command = [
             executable_path,
@@ -257,7 +246,18 @@ class TinxyLocalHub:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
+            except asyncio.TimeoutError:
+                _LOGGER.error(
+                    "Timeout executing brightness command for relay %s after 10 seconds. Falling back to toggle.",
+                    relay_number
+                )
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+                return await self.tinxy_toggle(mqttpass, relay_number, 1)
 
             if process.returncode == 0:
                 _LOGGER.info("Successfully set brightness %s for relay %s", brightness, relay_number)
@@ -394,6 +394,7 @@ class TinxyLocalHub:
         # Get or create device queue
         if device_id not in self.device_queues:
             self.device_queues[device_id] = deque()
+            self.device_events[device_id] = asyncio.Event()
             self.device_last_command[device_id] = 0.0
             # Start worker for this device
             self.device_workers[device_id] = asyncio.create_task(
@@ -448,6 +449,7 @@ class TinxyLocalHub:
         )
         
         queue.append(command)
+        self.device_events[device_id].set()
         
         # Log queue status
         queue_size = len(queue)
@@ -467,8 +469,13 @@ class TinxyLocalHub:
         while not self._shutdown:
             try:
                 queue = self.device_queues.get(device_id)
-                if not queue:
+                if queue is None:
                     await asyncio.sleep(0.1)
+                    continue
+
+                if len(queue) == 0:
+                    self.device_events[device_id].clear()
+                    await self.device_events[device_id].wait()
                     continue
 
                 # Check rate limiting

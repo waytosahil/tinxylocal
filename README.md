@@ -9,7 +9,6 @@ Join [Discord server](https://discord.gg/VH4jgz2f) for support.
 
 1. **Home Assistant Community Store (HACS)**: Ensure HACS is installed in your Home Assistant setup. HACS is required to add third-party custom integrations.
 2. **API Key**: Obtain an API key for the tinxy-local integration.
-3. **IP Address**: Ip address of all Tinxy Devices [How to get](discover.md)
 
 ## Installation Steps
 
@@ -26,13 +25,10 @@ Join [Discord server](https://discord.gg/VH4jgz2f) for support.
 
 For each device you want to add:
 
-1. **Verify Local API Support** (Check Step 3):
-   - Before adding a device, confirm that it supports local access.
-   - Visit `[device_ip]/info` to ensure that local API support is enabled for that specific device.
-2. **Add the Device Using the Tinxy Integration**:
+1. **Add the Device Using the Tinxy Integration**:
    - Navigate to **Settings** > **Devices & Services** in Home Assistant.
    - Click **Add Integration** and search for **tinxy-local**.
-   - When prompted, enter the API key to link the device with the integration (If you have an exising device you can choese to use existing token ).
+   - When prompted, enter the API key to link the device with the integration (If you have an existing device, you can choose to use the existing token).
 
 ### Prompt Details for Tinxy Local Integration
 
@@ -45,19 +41,14 @@ When setting up each device with the **tinxy-local** integration, you’ll encou
 2. **Device Selection Prompt**:
    - After entering the API key, the integration will retrieve a list of devices associated with your account.
    - You will be prompted to **select a device** from this list. Choose the specific device you wish to configure.
-   - Next need to enter the **IP address** of the selected device in the **Host** column.
-   - This IP should be the local IP address of the device on your network (Adding will fail if the device is not correct / Local API is not available), allowing Home Assistant to communicate directly with it over the local API.
+   - **Automatic Discovery:** The integration will automatically discover and resolve the local IP address of the selected device on your Wi-Fi network using Zeroconf (mDNS). No manual IP inputs are required!
 
-These prompts ensure that each device is correctly authenticated, selected, and connected over your local network. Repeat these steps for each additional device you wish to add to Home Assistant.
+These prompts ensure that each device is correctly authenticated, selected, and connected over your local network. Repeat this process for each additional device you wish to add.
 
-Repeat this process for each additional device you wish to add.
+### Step 3: Local Connection Troubleshooting
 
-### Step 3: Verify Local API Connectivity (Prior to Adding Each Device)
-
-1. **Check Device’s Local API Support**:
-   - For each device, visit `[device_ip]/info` to confirm local API support is enabled.
-2. **Local API Connection Troubleshooting**:
-   - If the device fails to toggle or respond correctly, Avoid rapid repeated toggling, as this can cause the local API to freeze, If toggling fails after multiple attempts, try resetting your device.
+1. **Local API Connection Troubleshooting**:
+   - If the device fails to toggle or respond correctly, avoid rapid repeated toggling as this can cause the local API to freeze. If toggling fails after multiple attempts, try power cycling or resetting your device.
 
 
 ### Step 4: Troubleshooting

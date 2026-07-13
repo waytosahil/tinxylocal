@@ -230,9 +230,12 @@ class TinxyFan(CoordinatorEntity, FanEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the fan off."""
         try:
+            node = next((n for n in self.coordinator.nodes if n["device_id"] == self.node_id), None)
+            mqtt_pass = node["mqtt_password"] if node else ""
+            
             result = await self.hub.queue_toggle_command(
                 self.node_id,
-                self.coordinator.nodes[0]["mqtt_password"],
+                mqtt_pass,
                 self.relay_number,
                 0,
             )
@@ -266,9 +269,12 @@ class TinxyFan(CoordinatorEntity, FanEntity):
     async def _set_brightness(self, brightness: int) -> bool:
         """Set the brightness/speed of the fan using CLI."""
         try:
+            node = next((n for n in self.coordinator.nodes if n["device_id"] == self.node_id), None)
+            mqtt_pass = node["mqtt_password"] if node else ""
+            
             return await self.hub.queue_brightness_command(
                 self.node_id,
-                self.coordinator.nodes[0]["mqtt_password"],
+                mqtt_pass,
                 self.relay_number,
                 brightness,
             )

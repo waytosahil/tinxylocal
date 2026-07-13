@@ -176,9 +176,12 @@ class TinxySwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         try:
+            node = next((n for n in self.coordinator.nodes if n["device_id"] == self.node_id), None)
+            mqtt_pass = node["mqtt_password"] if node else ""
+            
             result = await self.hub.queue_toggle_command(
                 self.node_id,
-                self.coordinator.nodes[0]["mqtt_password"],
+                mqtt_pass,
                 self.relay_number,
                 1,
             )
@@ -191,9 +194,12 @@ class TinxySwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         try:
+            node = next((n for n in self.coordinator.nodes if n["device_id"] == self.node_id), None)
+            mqtt_pass = node["mqtt_password"] if node else ""
+            
             result = await self.hub.queue_toggle_command(
                 self.node_id,
-                self.coordinator.nodes[0]["mqtt_password"],
+                mqtt_pass,
                 self.relay_number,
                 0,
             )
