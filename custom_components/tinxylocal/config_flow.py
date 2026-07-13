@@ -183,12 +183,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_choose_token(
-        self, user_input: dict[str, Any]
+        self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle the step where user chooses to use the existing token or enter a new one."""
-        if user_input["token_choice"] == "existing":
-            return await self.async_step_select_device()
-        return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA)
+        if user_input is not None:
+            if user_input["token_choice"] == "existing":
+                return await self.async_step_select_device()
+            return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA)
+
+        return self.async_show_form(
+            step_id="choose_token", data_schema=STEP_CHOOSE_TOKEN_SCHEMA
+        )
 
     async def async_step_select_device(
         self, user_input: dict[str, Any] = None
