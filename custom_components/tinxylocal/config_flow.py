@@ -13,7 +13,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import selector
-from homeassistant.components import zeroconf
 
 from .const import CONF_DEVICE, CONF_DEVICE_ID, CONF_MQTT_PASS, CONF_POLLING_INTERVAL, CONF_REQUEST_TIMEOUT, DEFAULT_POLLING_INTERVAL, DEFAULT_REQUEST_TIMEOUT, DOMAIN, TINXY_BACKEND
 from .hub import TinxyLocalHub
@@ -103,7 +102,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return TinxyLocalOptionsFlowHandler()
 
     async def async_step_zeroconf(
-        self, discovery_info: zeroconf.ZeroconfServiceInfo
+        self, discovery_info: Any
     ) -> config_entries.ConfigFlowResult:
         """Handle a flow initialized by Zeroconf discovery."""
         name = discovery_info.name
