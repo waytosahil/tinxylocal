@@ -141,5 +141,5 @@ class TinxyUpdateCoordinator(DataUpdateCoordinator):
                 name=node["name"],
                 manufacturer="Tinxy",
                 model=model,
-                sw_version=firmware_version,
+                sw_version=str(firmware_version) if firmware_version is not None else None,
             )
