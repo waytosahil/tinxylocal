@@ -213,11 +213,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self.discovered_suffix and not user_input:
             matching_device = None
             for item in self.cloud_devices:
-                if "uuidRef" in item and "uuid" in item["uuidRef"]:
-                    uuid = item["uuidRef"]["uuid"]
-                    if uuid[-5:].lower() == self.discovered_suffix:
-                        matching_device = item
-                        break
+                device_id = item.get("_id", "")
+                if device_id[-5:].lower() == self.discovered_suffix:
+                    matching_device = item
+                    break
             
             if matching_device:
                 _LOGGER.info("Automatically selected discovered Zeroconf device: %s", matching_device["name"])
@@ -243,8 +242,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # Determine host IP: use discovered host IP or resolve via Zeroconf
                 host_ip = None
-                device_uuid = selected_device["uuidRef"]["uuid"]
-                suffix = device_uuid[-5:].lower()
+                device_id = selected_device["_id"]
+                suffix = device_id[-5:].lower()
 
                 if self.discovered_suffix == suffix and self.discovered_host:
                     host_ip = self.discovered_host
