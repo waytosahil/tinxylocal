@@ -16,6 +16,13 @@
         "data": {
           "token_choice": "Token Option"
         }
+      },
+      "manual_ip": {
+        "title": "Manual IP Address",
+        "description": "Could not automatically locate the device '{name}' on your network via Zeroconf. Please enter its local IP address manually.",
+        "data": {
+          "host": "IP Address"
+        }
       }
     },
     "error": {

@@ -38,11 +38,12 @@ STEP_CHOOSE_TOKEN_SCHEMA = vol.Schema(
         )
     }
 )
-
-
-
-
-
+# Schema for entering device IP manually
+STEP_MANUAL_IP_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_HOST): str,
+    }
+)
 
 
 async def read_devices(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -92,6 +93,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.cloud_devices = {}
         self.discovered_suffix = None
         self.discovered_host = None
+        self.selected_device = None
 
     @staticmethod
     def async_get_options_flow(
@@ -304,7 +306,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             except CannotResolveIP:
                 self.discovered_suffix = None  # Clear suffix on failure to fallback
-                errors["base"] = "cannot_resolve_ip"
+                self.selected_device = selected_device
+                return await self.async_step_manual_ip()
             except Exception as e:  # noqa: BLE001
                 self.discovered_suffix = None  # Clear suffix on failure to fallback
                 _LOGGER.error("Device selection error: %s", e)
@@ -316,9 +319,69 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_DEVICE_ID): vol.In(device_options),
             }
         )
-
         return self.async_show_form(
             step_id="select_device", data_schema=device_schema, errors=errors
+        )
+
+    async def async_step_manual_ip(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle manual IP configuration fallback."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host_ip = user_input[CONF_HOST]
+            try:
+                web_session = async_get_clientsession(self.hass)
+                hub = TinxyLocalHub(self.hass, host_ip)
+                validate_status = await hub.validate_ip(
+                    web_session,
+                    self.selected_device["uuidRef"]["uuid"],
+                )
+
+                _LOGGER.debug("Manual IP validation status: %s", validate_status)
+
+                if validate_status == "wrong_chip_id":
+                    raise ValueError(  # noqa: TRY301
+                        "Wrong Ip address resolved, chip id should be {}".format(
+                            self.selected_device["uuidRef"]["uuid"]
+                        )
+                    )
+
+                if validate_status == "api_not_available":
+                    raise ValueError("Local API not available.")  # noqa: TRY301
+
+                if validate_status == "connection_error":
+                    raise ValueError("Connection error.")  # noqa: TRY301
+
+                # Check if 'devices' is an empty list and 'deviceTypes' has a single data
+                if isinstance(self.selected_device.get("devices"), list) and not self.selected_device["devices"]:
+                    if isinstance(self.selected_device.get("deviceTypes"), list) and len(self.selected_device["deviceTypes"]) == 1:
+                        # Set 'devices' to be the same as 'deviceTypes'
+                        self.selected_device["devices"] = self.selected_device["deviceTypes"]
+
+                return self.async_create_entry(
+                    title=self.selected_device["name"],
+                    data={
+                        CONF_DEVICE: self.selected_device,
+                        CONF_HOST: host_ip,
+                        CONF_MQTT_PASS: self.selected_device["mqttPassword"],
+                        CONF_DEVICE_ID: self.selected_device["uuidRef"]["uuid"],
+                        CONF_API_KEY: self.api_token,
+                    },
+                )
+
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("Manual IP validation error: %s", e)
+                errors["base"] = str(e)
+
+        return self.async_show_form(
+            step_id="manual_ip",
+            data_schema=STEP_MANUAL_IP_SCHEMA,
+            errors=errors,
+            description_placeholders={
+                "name": self.selected_device["name"] if self.selected_device else "Device"
+            }
         )
 
 
