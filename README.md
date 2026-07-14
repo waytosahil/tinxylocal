@@ -6,7 +6,6 @@
 Welcome to the **tinxy-local** integration for Home Assistant! This integration allows you to control your Tinxy switches, fans, and locks directly over your local Wi-Fi network, ensuring fast response times and privacy.
 
 **Credits**: Original foundation and creation by [@arevindh](https://github.com/arevindh). Please note that this specific repository contains community updates built on top of their work and is **not** maintained by the original author.
-Join the [Discord server](https://discord.gg/VH4jgz2f) for support and community discussion.
 
 ---
 
@@ -31,7 +30,7 @@ Join the [Discord server](https://discord.gg/VH4jgz2f) for support and community
 ### Step 1: Install via HACS
 1. Go to **HACS** in your Home Assistant UI.
 2. Click **Integrations** -> **Custom repositories** (three dots in top right).
-3. Add the repository URL: `https://github.com/arevindh/tinxylocal` as an Integration.
+3. Add the repository URL: `https://github.com/waytosahil/tinxylocal` as an Integration.
 4. Click **Download** and install the integration.
 5. **Restart Home Assistant**.
 
