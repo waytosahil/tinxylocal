@@ -113,7 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hubs = [TinxyLocalHub(hass, node["ip_address"], request_timeout) for node in nodes]
 
     # Initialize the coordinator with the list of nodes and web session
-    coordinator = TinxyUpdateCoordinator(hass, nodes, web_session, polling_interval)
+    coordinator = TinxyUpdateCoordinator(hass, nodes, hubs, web_session, polling_interval)
     coordinator.config_entry = entry
 
     # Store the coordinator and hubs in Home Assistant's data store

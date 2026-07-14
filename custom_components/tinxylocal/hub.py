@@ -15,7 +15,7 @@ from .tinxycloud import TinxyCloud, TinxyHostConfiguration
 
 _LOGGER = logging.getLogger(__name__)
 
-HEADERS = {"Content-Type": "application/json"}
+HEADERS = {"Content-Type": "application/json", "Connection": "close"}
 
 
 @dataclass

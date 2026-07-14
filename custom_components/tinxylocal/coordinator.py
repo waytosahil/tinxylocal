@@ -23,7 +23,7 @@ class TinxyUpdateCoordinator(DataUpdateCoordinator):
     nodes: list[dict[str, Any]]
 
     def __init__(
-        self, hass: HomeAssistant, nodes: list[dict[str, Any]], web_session, default_polling_interval: int = 5
+        self, hass: HomeAssistant, nodes: list[dict[str, Any]], hubs: list, web_session, default_polling_interval: int = 5
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -34,8 +34,8 @@ class TinxyUpdateCoordinator(DataUpdateCoordinator):
         )
         self.hass = hass
         self.nodes = nodes  # Type-annotated as a list of dictionaries
+        self.hubs = hubs
         self.web_session = web_session
-        self.hubs = [TinxyLocalHub(hass, node["ip_address"]) for node in nodes]
         self.device_metadata = {}  # Type-annotated as a dictionary
 
     async def _async_resolve_zeroconf(self, device_id: str) -> str | None:
