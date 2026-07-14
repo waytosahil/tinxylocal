@@ -129,7 +129,46 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "name": f"Tinxy {suffix}"
         }
 
-        # Proceed to step user to prompt for API Key
+        # Check for an existing token in any active config entries
+        api_token = None
+        for entry in self._async_current_entries():
+            if CONF_API_KEY in entry.data:
+                api_token = entry.data[CONF_API_KEY]
+                break
+
+        if api_token:
+            try:
+                # Fetch devices from cloud to auto-provision
+                cloud_devices = await read_devices(self.hass, {CONF_API_KEY: api_token})
+                matching_device = None
+                for item in cloud_devices:
+                    device_id = item.get("_id", "")
+                    if device_id[-5:].lower() == suffix:
+                        matching_device = item
+                        break
+                
+                if matching_device:
+                    _LOGGER.info("Auto-provisioning discovered device: %s", matching_device["name"])
+                    
+                    # Check if 'devices' is an empty list and 'deviceTypes' has a single data (Single Relay fix)
+                    if isinstance(matching_device.get("devices"), list) and not matching_device["devices"]:
+                        if isinstance(matching_device.get("deviceTypes"), list) and len(matching_device["deviceTypes"]) == 1:
+                            matching_device["devices"] = matching_device["deviceTypes"]
+
+                    return self.async_create_entry(
+                        title=matching_device["name"],
+                        data={
+                            CONF_DEVICE: matching_device,
+                            CONF_HOST: host,
+                            CONF_MQTT_PASS: matching_device.get("mqttPassword", ""),
+                            CONF_DEVICE_ID: matching_device["uuidRef"]["uuid"],
+                            CONF_API_KEY: api_token,
+                        },
+                    )
+            except Exception as e:
+                _LOGGER.error("Failed to auto-provision discovered device %s: %s", suffix, e)
+
+        # Proceed to step user to prompt for API Key if auto-provisioning fails or no token exists
         return await self.async_step_user()
 
     async def async_step_user(
@@ -291,6 +330,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if isinstance(selected_device.get("deviceTypes"), list) and len(selected_device["deviceTypes"]) == 1:
                         # Set 'devices' to be the same as 'deviceTypes'
                         selected_device["devices"] = selected_device["deviceTypes"]
+
+                # Ensure unique_id is globally set for manual setups
+                device_id = selected_device["_id"]
+                suffix = device_id[-5:].lower()
+                await self.async_set_unique_id(suffix)
+                self._abort_if_unique_id_configured()
 
                 return self.async_create_entry(
                     title=selected_device["name"],
