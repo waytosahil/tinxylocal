@@ -1,3 +1,5 @@
+import base64
+import json
 from dataclasses import dataclass
 from pprint import pprint
 
@@ -102,6 +104,32 @@ class TinxyCloud:
                     message=f"Request to cloud failed with status {resp.status}"
                 )
             return await resp.json()
+
+    def get_user_id(self):
+        """Extract User ID from JWT token."""
+        try:
+            token = self.host_config.api_token
+            if not token or "." not in token:
+                return None
+            payload = token.split(".")[1]
+            padded = payload + "=" * (4 - len(payload) % 4)
+            decoded = base64.urlsafe_b64decode(padded).decode("utf-8")
+            data = json.loads(decoded)
+            return data.get("_id")
+        except Exception:
+            return None
+
+    async def get_preferences(self, user_id):
+        """Read user preferences from server."""
+        if not user_id:
+            return []
+        return await self.tinxy_request(f"v2/users/{user_id}/preferences")
+
+    async def set_preference(self, user_id, preference_data):
+        """Update a specific preference to the server."""
+        if not user_id:
+            return None
+        return await self.tinxy_request(f"v2/users/{user_id}/preferences", payload=preference_data, method="POST")
 
     async def get_device_list(self):
         """Read all devices from server."""

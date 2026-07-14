@@ -11,11 +11,13 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.const import CONF_API_KEY
 
 from .const import DOMAIN
 from .coordinator import TinxyUpdateCoordinator
 from .hub import TinxyLocalHub
+from .tinxycloud import TinxyCloud, TinxyHostConfiguration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +45,24 @@ async def async_setup_entry(
     type_id = device_data.get("typeId", {})
     features = type_id.get("features", [])
     
+    # Initialize TinxyCloud to fetch device preferences
+    api_token = entry.data.get(CONF_API_KEY)
+    device_id = device_data.get("_id")
+    device_prefs = {}
+    tinxy_cloud = None
+    user_id = None
+    
+    if api_token:
+        host_config = TinxyHostConfiguration(api_token=api_token, api_url="https://backend.tinxy.in/")
+        tinxy_cloud = TinxyCloud(host_config, async_get_clientsession(hass))
+        user_id = tinxy_cloud.get_user_id()
+        if user_id:
+            try:
+                prefs_list = await tinxy_cloud.get_preferences(user_id)
+                device_prefs = next((p for p in prefs_list if p.get("deviceId") == device_id), {})
+            except Exception as e:
+                _LOGGER.error("Failed to fetch device preferences from Tinxy Cloud: %s", e)
+
     for node in coordinator.nodes:
         device_name = node["name"]
 
@@ -82,6 +102,28 @@ async def async_setup_entry(
                 device_type=device_type,
             )
             switches.append(switch)
+
+        # Add Configuration Switches if cloud is available
+        if tinxy_cloud and user_id and device_id:
+            # We only add these once per node since they apply to the entire device, not each relay
+            switches.append(
+                TinxyConfigSwitch(
+                    tinxy_cloud, user_id, device_id, device_name, "Restore State on Power", 
+                    "restoreStateOn", device_prefs.get("restoreStateOn", True), "mdi:power-settings"
+                )
+            )
+            switches.append(
+                TinxyConfigSwitch(
+                    tinxy_cloud, user_id, device_id, device_name, "Green Status LED", 
+                    "statusLed", device_prefs.get("statusLed", True), "mdi:led-on"
+                )
+            )
+            switches.append(
+                TinxyConfigSwitch(
+                    tinxy_cloud, user_id, device_id, device_name, "Push Notifications", 
+                    "notificationOn", device_prefs.get("notificationOn", False), "mdi:bell"
+                )
+            )
 
     async_add_entities(switches)
 
@@ -219,3 +261,65 @@ class TinxySwitch(CoordinatorEntity, SwitchEntity):
                         self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("Failed to turn off switch %s: %s", self.node_id, e)
+
+class TinxyConfigSwitch(SwitchEntity):
+    """Configuration switch for Tinxy device preferences."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        cloud: TinxyCloud,
+        user_id: str,
+        device_id: str,
+        device_name: str,
+        name: str,
+        pref_key: str,
+        initial_state: bool,
+        icon: str,
+    ) -> None:
+        """Initialize the config switch."""
+        self.cloud = cloud
+        self.user_id = user_id
+        self.device_id = device_id
+        self._pref_key = pref_key
+        
+        self._attr_name = f"{device_name} {name}"
+        self._attr_unique_id = f"{device_id}_{pref_key}"
+        self._attr_icon = icon
+        self._is_on = initial_state
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return device information."""
+        device_name = self._attr_name.split(" ")[0] if self._attr_name else "Unknown Device"
+        return {
+            "identifiers": {(DOMAIN, self.device_id)},
+            "name": device_name,
+            "manufacturer": "Tinxy",
+        }
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if the switch is on."""
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the setting on."""
+        payload = {"deviceId": self.device_id, self._pref_key: True}
+        result = await self.cloud.set_preference(self.user_id, payload)
+        if result:
+            self._is_on = True
+            self.async_write_ha_state()
+        else:
+            _LOGGER.error("Failed to turn on %s", self._attr_name)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the setting off."""
+        payload = {"deviceId": self.device_id, self._pref_key: False}
+        result = await self.cloud.set_preference(self.user_id, payload)
+        if result:
+            self._is_on = False
+            self.async_write_ha_state()
+        else:
+            _LOGGER.error("Failed to turn off %s", self._attr_name)

@@ -13,6 +13,7 @@ Welcome to the **tinxy-local** integration for Home Assistant! This integration 
 
 - **Local Control:** Controls devices directly via HTTP over your local network. No cloud dependence for toggling!
 - **Zero-Touch Auto-Provisioning:** Once your first device is configured, any new Tinxy devices added to your Wi-Fi are automatically discovered via mDNS, configured, and added to your dashboard with zero clicks required!
+- **Hardware Configuration Sync:** Control native hardware settings directly from Home Assistant! Toggles for **Restore State on Power**, **Green Status LED**, and **Push Notifications** are exposed as hidden configuration entities on your device page, dynamically syncing with the Tinxy Cloud.
 - **Optimistic State Updates:** Snappy UI feedback. Toggles instantly reflect in Home Assistant without waiting for redundant polling requests, minimizing network load on your switches.
 - **Auto-Discovery (Zeroconf):** IP addresses are automatically resolved and updated dynamically if your router changes them.
 
