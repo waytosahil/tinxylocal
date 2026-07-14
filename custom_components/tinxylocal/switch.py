@@ -189,8 +189,12 @@ class TinxySwitch(CoordinatorEntity, SwitchEntity):
                 1,
             )
             if result:
-                await asyncio.sleep(0.5)
-                await self.coordinator.async_request_refresh()
+                # Optimistic state update: assume success to update UI instantly without polling
+                if self.coordinator.data and self.node_id in self.coordinator.data:
+                    device_data = self.coordinator.data[self.node_id].get("devices", [])
+                    if len(device_data) >= self.relay_number:
+                        device_data[self.relay_number - 1]["status"] = "on"
+                        self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("Failed to turn on switch %s: %s", self.node_id, e)
 
@@ -207,7 +211,11 @@ class TinxySwitch(CoordinatorEntity, SwitchEntity):
                 0,
             )
             if result:
-                await asyncio.sleep(0.5)
-                await self.coordinator.async_request_refresh()
+                # Optimistic state update: assume success to update UI instantly without polling
+                if self.coordinator.data and self.node_id in self.coordinator.data:
+                    device_data = self.coordinator.data[self.node_id].get("devices", [])
+                    if len(device_data) >= self.relay_number:
+                        device_data[self.relay_number - 1]["status"] = "off"
+                        self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("Failed to turn off switch %s: %s", self.node_id, e)

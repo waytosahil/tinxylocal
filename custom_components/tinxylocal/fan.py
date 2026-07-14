@@ -240,8 +240,12 @@ class TinxyFan(CoordinatorEntity, FanEntity):
                 0,
             )
             if result:
-                await asyncio.sleep(0.5)
-                await self.coordinator.async_request_refresh()
+                # Optimistic state update: assume success to update UI instantly without polling
+                if self.coordinator.data and self.node_id in self.coordinator.data:
+                    device_data = self.coordinator.data[self.node_id].get("devices", [])
+                    if len(device_data) >= self.relay_number:
+                        device_data[self.relay_number - 1]["status"] = "off"
+                        self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("Failed to turn off fan %s: %s", self.node_id, e)
 
@@ -263,8 +267,13 @@ class TinxyFan(CoordinatorEntity, FanEntity):
         result = await self._set_brightness(brightness)
         
         if result:
-            await asyncio.sleep(0.5)
-            await self.coordinator.async_request_refresh()
+            # Optimistic state update: assume success to update UI instantly without polling
+            if self.coordinator.data and self.node_id in self.coordinator.data:
+                device_data = self.coordinator.data[self.node_id].get("devices", [])
+                if len(device_data) >= self.relay_number:
+                    device_data[self.relay_number - 1]["status"] = "on"
+                    device_data[self.relay_number - 1]["brightness"] = brightness
+                    self.async_write_ha_state()
 
     async def _set_brightness(self, brightness: int) -> bool:
         """Set the brightness/speed of the fan using CLI."""
