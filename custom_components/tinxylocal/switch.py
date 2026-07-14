@@ -68,7 +68,10 @@ async def async_setup_entry(
                 continue
                 
             relay_number = index + 1
-            entity_name = f"{device_name} {device_name_str}"
+            if len(node["devices"]) == 1 and device_name_str.lower() == device_name.lower():
+                entity_name = device_name
+            else:
+                entity_name = f"{device_name} {device_name_str}"
             
             switch = TinxySwitch(
                 coordinator=coordinator,

@@ -75,6 +75,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:
         _LOGGER.warning("Tinxy: Zeroconf resolution failed at startup for %s: %s", device_data["name"], err)
 
+    # Build list of devices/relays belonging to this node
+    node_devices = []
+    if device_data.get("devices"):
+        node_devices = [
+            {"name": dev_name, "type": dev_type}
+            for dev_name, dev_type in zip(
+                device_data["devices"], device_data["deviceTypes"], strict=False
+            )
+        ]
+    else:
+        gtype = device_data.get("typeId", {}).get("gtype", "")
+        model = device_data.get("typeId", {}).get("name", "")
+        if gtype == "action.devices.types.LOCK":
+            dev_type = "Lock"
+        elif model in ("EVA_BULB", "WIFI_BULB_WHITE_V1", "Dimmable Light"):
+            dev_type = "Light"
+        elif model in ("WIFI_SWITCH_1FAN_V1", "Fan"):
+            dev_type = "Fan"
+        else:
+            dev_type = "Switch"
+        node_devices = [{"name": device_data["name"], "type": dev_type}]
+
     nodes = [
         {
             "ip_address": current_ip,
@@ -83,15 +105,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "name": device_data["name"],
             "model": device_data["typeId"]["name"],
             "unique_id": device_data["_id"],
-            "devices": [
-                {"name": dev_name, "type": dev_type}
-                for dev_name, dev_type in zip(
-                    device_data["devices"], device_data["deviceTypes"], strict=False
-                )
-            ] if device_data["devices"] else [
-                # For locks and other devices without individual relays, create a single device entry
-                {"name": device_data["name"], "type": "Lock"}
-            ] if device_data.get("typeId", {}).get("gtype") == "action.devices.types.LOCK" else [],
+            "devices": node_devices,
         }
     ]
 
