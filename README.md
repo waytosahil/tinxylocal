@@ -5,7 +5,7 @@
 
 Welcome to the **tinxy-local** integration for Home Assistant! This integration allows you to control your Tinxy switches, fans, and locks directly over your local Wi-Fi network, ensuring fast response times and privacy.
 
-**Credits**: Created and maintained by [@arevindh](https://github.com/arevindh).
+**Credits**: Original foundation and creation by [@arevindh](https://github.com/arevindh). Please note that this specific repository contains community updates built on top of their work and is **not** maintained by the original author.
 Join the [Discord server](https://discord.gg/VH4jgz2f) for support and community discussion.
 
 ---
